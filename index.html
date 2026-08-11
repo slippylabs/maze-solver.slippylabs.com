@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maze Generator &amp; Pathfinder // maze-solver.slippylabs.com</title>
+<meta name="description" content="Generate mazes and watch BFS, Dijkstra, A* and greedy best-first search solve them step by step, with visited-order heatmaps and live node counts.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%231c8a52%22%20stroke%3D%22%2339ff8f%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2216%22%20r%3D%228%22%20fill%3D%22%231c8a52%22%20stroke%3D%22%2339ff8f%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2244%22%20cy%3D%2216%22%20r%3D%228%22%20fill%3D%22%231c8a52%22%20stroke%3D%22%2339ff8f%22%20stroke-width%3D%222%22%2F%3E%3C%2Fsvg%3E">
+<meta name="theme-color" content="#050b10">
+<link rel="stylesheet" href="style.css?v=5">
+</head>
+<body>
+
+<div class="starfield"></div>
+<div class="scanlines"></div>
+
+<main class="page-wrap">
+  <div class="hud-panel wide">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div class="callsign-row">
+      <div class="toad-avatar-wrap">
+        <svg class="toad-avatar" width="46" height="46" viewBox="0 0 64 64">
+          <circle cx="32" cy="34" r="22" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="20" cy="16" r="8" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="44" cy="16" r="8" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="20" cy="16" r="3.5" fill="#050b10"/>
+          <circle cx="44" cy="16" r="3.5" fill="#050b10"/>
+          <ellipse cx="24" cy="32" rx="4.5" ry="5.5" fill="#050b10"/>
+          <ellipse cx="40" cy="32" rx="4.5" ry="5.5" fill="#050b10"/>
+          <circle cx="24" cy="30" r="1.4" fill="#39ff8f"/>
+          <circle cx="40" cy="30" r="1.4" fill="#39ff8f"/>
+          <path d="M22 42 Q32 48 42 42" stroke="#050b10" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+        <div class="lock-reticle"></div>
+      </div>
+      <span class="callsign">Workshop Division // Tool</span>
+      <div class="nav-links">
+        <a href="https://projects.slippylabs.com/" class="logout-link">&larr; Archive</a>
+      </div>
+    </div>
+
+    <h1>MAZE &amp; PATHFINDER</h1>
+    <p class="subtitle">Generate a maze, then watch four classic search algorithms work their way through it one step at a time. Draw your own walls, add terrain costs, and see exactly where each one wastes its effort.</p>
+
+    <div class="tool-controls">
+      <button class="tool-btn" id="generate-btn">Generate Maze</button>
+      <button class="tool-btn" id="solve-btn">Solve</button>
+      <button class="tool-btn ghost" id="clear-btn">Empty Grid</button>
+      <label class="tool-field-label" for="gen-select">Generator</label>
+      <select class="tool-select" id="gen-select">
+        <option value="backtracker">Recursive backtracker</option>
+        <option value="prim">Randomised Prim's</option>
+      </select>
+    </div>
+
+    <div class="tool-controls">
+      <label class="tool-field-label" for="algo-select">Search</label>
+      <select class="tool-select" id="algo-select">
+        <option value="astar">A* — Manhattan heuristic</option>
+        <option value="bfs">Breadth-first search</option>
+        <option value="dijkstra">Dijkstra</option>
+        <option value="greedy">Greedy best-first</option>
+      </select>
+      <label class="tool-check"><input type="checkbox" id="weight-check"> Terrain costs (1&ndash;9)</label>
+      <label class="tool-check"><input type="checkbox" id="diag-check"> Allow diagonals</label>
+    </div>
+
+    <div class="tool-field-row">
+      <label class="tool-field-label" for="size-slider">Maze size &mdash; <span id="size-label">21</span> cells across</label>
+      <div class="tool-slider-row">
+        <input type="range" id="size-slider" min="6" max="40" value="10">
+      </div>
+    </div>
+
+    <div class="tool-field-row">
+      <label class="tool-field-label" for="speed-slider">Animation speed &mdash; <span id="speed-label">12</span> steps per frame</label>
+      <div class="tool-slider-row">
+        <input type="range" id="speed-slider" min="1" max="200" value="12">
+      </div>
+    </div>
+
+    <div class="canvas-frame">
+      <canvas id="maze-canvas"></canvas>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-tile"><span class="stat-value" id="stat-expanded">0</span><span class="stat-label">Nodes Expanded</span></div>
+      <div class="stat-tile"><span class="stat-value" id="stat-frontier">0</span><span class="stat-label">Frontier Peak</span></div>
+      <div class="stat-tile"><span class="stat-value" id="stat-length">&mdash;</span><span class="stat-label">Path Steps</span></div>
+      <div class="stat-tile"><span class="stat-value" id="stat-cost">&mdash;</span><span class="stat-label">Path Cost</span></div>
+    </div>
+
+    <p class="tool-output" id="verdict" style="min-height:auto">Press Solve to start a search.</p>
+
+    <p class="tool-note">Click or drag on the grid to add and remove walls by hand. Green shading is the order cells were expanded &mdash; darker means earlier. With flat terrain, Dijkstra and breadth-first search expand cells in the same order, which is the point: Dijkstra only earns its keep once moves cost different amounts. Greedy best-first is fast but its route is not guaranteed to be the cheapest; A* is, as long as the heuristic never overestimates.</p>
+
+    <div class="comm-window">
+      <div class="comm-portrait">
+        <svg width="36" height="36" viewBox="0 0 64 64">
+          <circle cx="32" cy="34" r="22" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="20" cy="16" r="8" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="44" cy="16" r="8" fill="#1c8a52" stroke="#39ff8f" stroke-width="2"/>
+          <circle cx="20" cy="16" r="3.5" fill="#050b10"/>
+          <circle cx="44" cy="16" r="3.5" fill="#050b10"/>
+          <ellipse cx="24" cy="32" rx="4.5" ry="5.5" fill="#050b10"/>
+          <ellipse cx="40" cy="32" rx="4.5" ry="5.5" fill="#050b10"/>
+          <circle cx="24" cy="30" r="1.4" fill="#39ff8f"/>
+          <circle cx="40" cy="30" r="1.4" fill="#39ff8f"/>
+          <path d="M22 42 Q32 48 42 42" stroke="#050b10" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="comm-body">
+        <div class="comm-label"><span class="dot"></span> Incoming Transmission &mdash; Slippy</div>
+        <p>"Four ways to get lost. Only one of them is in a hurry and still correct."</p>
+      </div>
+    </div>
+
+    <a href="https://projects.slippylabs.com/" class="hud-btn">&larr; Back to Archive</a>
+  </div>
+</main>
+
+<script>
+const canvas = document.getElementById('maze-canvas');
+const ctx = canvas.getContext('2d');
+const sizeSlider = document.getElementById('size-slider');
+const speedSlider = document.getElementById('speed-slider');
+const algoSelect = document.getElementById('algo-select');
+const weightCheck = document.getElementById('weight-check');
+const diagCheck = document.getElementById('diag-check');
+const verdict = document.getElementById('verdict');
+
+const WALL = 0, OPEN = 1;
+
+let gw = 21, gh = 21;      // fine grid: odd cells are rooms, even are walls
+let cells = null;          // Uint8Array of WALL/OPEN
+let costs = null;          // Uint8Array of terrain cost per cell
+let search = null;         // live search state, or null
+let rafId = null;
+let cellPx = 16;
+
+// ---------- min-heap keyed on [priority, insertion order] ----------
+class MinHeap {
+  constructor() { this.a = []; this.seq = 0; }
+  get size() { return this.a.length; }
+  push(priority, value) {
+    const node = { p: priority, s: this.seq++, v: value };
+    const a = this.a;
+    a.push(node);
+    let i = a.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (this.less(a[i], a[parent])) { const t = a[i]; a[i] = a[parent]; a[parent] = t; i = parent; }
+      else break;
+    }
+  }
+  pop() {
+    const a = this.a;
+    const top = a[0];
+    const last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < a.length && this.less(a[l], a[m])) m = l;
+        if (r < a.length && this.less(a[r], a[m])) m = r;
+        if (m === i) break;
+        const t = a[i]; a[i] = a[m]; a[m] = t; i = m;
+      }
+    }
+    return top.v;
+  }
+  less(x, y) { return x.p !== y.p ? x.p < y.p : x.s < y.s; }
+}
+
+// ---------- grid setup ----------
+function resizeGrid() {
+  const wide = parseInt(sizeSlider.value, 10);
+  gw = wide * 2 + 1;
+  gh = wide * 2 + 1;
+  document.getElementById('size-label').textContent = gw;
+  cells = new Uint8Array(gw * gh);
+  costs = new Uint8Array(gw * gh).fill(1);
+  cellPx = Math.max(4, Math.floor(760 / gw));
+  canvas.width = gw * cellPx;
+  canvas.height = gh * cellPx;
+}
+
+function idx(x, y) { return y * gw + x; }
+function startIdx() { return idx(1, 1); }
+function goalIdx() { return idx(gw - 2, gh - 2); }
+
+function assignCosts() {
+  const weighted = weightCheck.checked;
+  for (let i = 0; i < costs.length; i++) {
+    costs[i] = weighted ? 1 + Math.floor(Math.random() * 9) : 1;
+  }
+  costs[startIdx()] = 1;
+  costs[goalIdx()] = 1;
+}
+
+// ---------- generation ----------
+function generateBacktracker() {
+  cells.fill(WALL);
+  const stack = [[1, 1]];
+  cells[startIdx()] = OPEN;
+  while (stack.length) {
+    const [x, y] = stack[stack.length - 1];
+    const options = [];
+    for (const [dx, dy] of [[0, -2], [2, 0], [0, 2], [-2, 0]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx > 0 && ny > 0 && nx < gw - 1 && ny < gh - 1 && cells[idx(nx, ny)] === WALL) {
+        options.push([nx, ny, x + dx / 2, y + dy / 2]);
+      }
+    }
+    if (!options.length) { stack.pop(); continue; }
+    const [nx, ny, wx, wy] = options[Math.floor(Math.random() * options.length)];
+    cells[idx(wx, wy)] = OPEN;
+    cells[idx(nx, ny)] = OPEN;
+    stack.push([nx, ny]);
+  }
+}
+
+function generatePrim() {
+  cells.fill(WALL);
+  cells[startIdx()] = OPEN;
+  const frontier = [];
+  const pushFrontier = (x, y) => {
+    for (const [dx, dy] of [[0, -2], [2, 0], [0, 2], [-2, 0]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx > 0 && ny > 0 && nx < gw - 1 && ny < gh - 1 && cells[idx(nx, ny)] === WALL) {
+        frontier.push([nx, ny, x + dx / 2, y + dy / 2]);
+      }
+    }
+  };
+  pushFrontier(1, 1);
+  while (frontier.length) {
+    const pick = Math.floor(Math.random() * frontier.length);
+    const [nx, ny, wx, wy] = frontier.splice(pick, 1)[0];
+    if (cells[idx(nx, ny)] === OPEN) continue;
+    cells[idx(wx, wy)] = OPEN;
+    cells[idx(nx, ny)] = OPEN;
+    pushFrontier(nx, ny);
+  }
+}
+
+function generate() {
+  stopSearch();
+  resizeGrid();
+  if (document.getElementById('gen-select').value === 'prim') generatePrim();
+  else generateBacktracker();
+  cells[startIdx()] = OPEN;
+  cells[goalIdx()] = OPEN;
+  assignCosts();
+  resetStats();
+  verdict.textContent = 'Maze ready. Press Solve.';
+  verdict.classList.remove('error-text');
+  draw();
+}
+
+function emptyGrid() {
+  stopSearch();
+  resizeGrid();
+  for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++) cells[idx(x, y)] = OPEN;
+  assignCosts();
+  resetStats();
+  verdict.textContent = 'Empty grid — draw some walls, then press Solve.';
+  verdict.classList.remove('error-text');
+  draw();
+}
+
+// ---------- search ----------
+function neighbours(i) {
+  const x = i % gw, y = (i / gw) | 0;
+  const out = [];
+  const steps = diagCheck.checked
+    ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+    : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (const [dx, dy] of steps) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+    if (cells[idx(nx, ny)] !== OPEN) continue;
+    // No cutting a diagonal through a wall corner.
+    if (dx && dy && (cells[idx(x + dx, y)] !== OPEN || cells[idx(x, y + dy)] !== OPEN)) continue;
+    out.push(idx(nx, ny));
+  }
+  return out;
+}
+
+function heuristic(i, goal) {
+  const ax = i % gw, ay = (i / gw) | 0;
+  const bx = goal % gw, by = (goal / gw) | 0;
+  const dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
+  // Manhattan for 4-way; octile for 8-way — both stay admissible at min cost 1.
+  return diagCheck.checked ? (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy) : dx + dy;
+}
+
+function startSearch() {
+  const algo = algoSelect.value;
+  const start = startIdx(), goal = goalIdx();
+  const n = gw * gh;
+  const state = {
+    algo: algo, start: start, goal: goal,
+    dist: new Float64Array(n).fill(Infinity),
+    prev: new Int32Array(n).fill(-1),
+    order: new Int32Array(n).fill(-1),
+    closed: new Uint8Array(n),
+    inFrontier: new Uint8Array(n),
+    expanded: 0, frontierPeak: 0,
+    queue: null, heap: null, head: 0,
+    done: false, found: false, path: null,
+  };
+  state.dist[start] = 0;
+  if (algo === 'bfs') {
+    state.queue = [start];
+  } else {
+    state.heap = new MinHeap();
+    state.heap.push(algo === 'greedy' ? heuristic(start, goal) : 0, start);
+  }
+  state.inFrontier[start] = 1;
+  return state;
+}
+
+function stepSearch(s) {
+  if (s.done) return;
+  let current;
+  if (s.algo === 'bfs') {
+    if (s.head >= s.queue.length) { s.done = true; return; }
+    current = s.queue[s.head++];
+  } else {
+    if (!s.heap.size) { s.done = true; return; }
+    current = s.heap.pop();
+  }
+  if (s.closed[current]) return;
+  s.closed[current] = 1;
+  s.inFrontier[current] = 0;
+  s.order[current] = s.expanded++;
+
+  if (current === s.goal) {
+    s.done = true;
+    s.found = true;
+    const path = [];
+    for (let i = s.goal; i !== -1; i = s.prev[i]) path.push(i);
+    s.path = path.reverse();
+    return;
+  }
+
+  for (const nb of neighbours(current)) {
+    if (s.closed[nb]) continue;
+    const stepCost = s.algo === 'bfs' ? 1 : costs[nb];
+    const tentative = s.dist[current] + stepCost;
+    if (s.algo === 'bfs') {
+      if (s.dist[nb] !== Infinity) continue;
+      s.dist[nb] = tentative;
+      s.prev[nb] = current;
+      s.queue.push(nb);
+      s.inFrontier[nb] = 1;
+    } else if (tentative < s.dist[nb]) {
+      s.dist[nb] = tentative;
+      s.prev[nb] = current;
+      const h = heuristic(nb, s.goal);
+      const priority = s.algo === 'astar' ? tentative + h : s.algo === 'greedy' ? h : tentative;
+      s.heap.push(priority, nb);
+      s.inFrontier[nb] = 1;
+    }
+  }
+
+  const frontierSize = s.algo === 'bfs' ? s.queue.length - s.head : s.heap.size;
+  if (frontierSize > s.frontierPeak) s.frontierPeak = frontierSize;
+}
+
+function resetStats() {
+  document.getElementById('stat-expanded').textContent = '0';
+  document.getElementById('stat-frontier').textContent = '0';
+  document.getElementById('stat-length').textContent = '—';
+  document.getElementById('stat-cost').textContent = '—';
+}
+
+function updateStats(s) {
+  document.getElementById('stat-expanded').textContent = s.expanded.toLocaleString();
+  document.getElementById('stat-frontier').textContent = s.frontierPeak.toLocaleString();
+  if (s.path) {
+    document.getElementById('stat-length').textContent = (s.path.length - 1).toLocaleString();
+    let cost = 0;
+    for (let i = 1; i < s.path.length; i++) cost += (s.algo === 'bfs' ? 1 : costs[s.path[i]]);
+    document.getElementById('stat-cost').textContent = cost.toLocaleString();
+  }
+}
+
+function stopSearch() {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  search = null;
+}
+
+function solve() {
+  stopSearch();
+  search = startSearch();
+  verdict.textContent = 'Searching…';
+  verdict.classList.remove('error-text');
+  tick();
+}
+
+function tick() {
+  const perFrame = parseInt(speedSlider.value, 10);
+  document.getElementById('speed-label').textContent = perFrame;
+  for (let i = 0; i < perFrame && search && !search.done; i++) stepSearch(search);
+  draw();
+  if (search) updateStats(search);
+  if (search && !search.done) {
+    rafId = requestAnimationFrame(tick);
+  } else {
+    rafId = null;
+    if (search) {
+      if (search.found) {
+        verdict.textContent = 'Reached the goal after expanding ' + search.expanded.toLocaleString() +
+          ' cells — path is ' + (search.path.length - 1) + ' steps.';
+        verdict.classList.remove('error-text');
+      } else {
+        verdict.textContent = 'No route exists — the goal is walled off from the start.';
+        verdict.classList.add('error-text');
+      }
+    }
+  }
+}
+
+// ---------- drawing ----------
+function draw() {
+  ctx.fillStyle = '#050b10';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const weighted = weightCheck.checked;
+  const maxOrder = search ? Math.max(1, search.expanded) : 1;
+
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) {
+      const i = idx(x, y);
+      if (cells[i] === WALL) {
+        ctx.fillStyle = '#0d1f19';
+      } else if (search && search.order[i] >= 0) {
+        // Expansion-order heatmap: earliest expansions are darkest.
+        const t = search.order[i] / maxOrder;
+        ctx.fillStyle = 'rgba(57,255,143,' + (0.18 + t * 0.5).toFixed(3) + ')';
+      } else if (search && search.inFrontier[i]) {
+        ctx.fillStyle = 'rgba(255,145,48,0.55)';
+      } else if (weighted) {
+        ctx.fillStyle = 'rgba(217,251,232,' + (0.07 + (costs[i] - 1) / 8 * 0.16).toFixed(3) + ')';
+      } else {
+        ctx.fillStyle = 'rgba(217,251,232,0.09)';
+      }
+      ctx.fillRect(x * cellPx, y * cellPx, cellPx, cellPx);
+    }
+  }
+
+  if (search && search.path) {
+    ctx.strokeStyle = '#39ff8f';
+    ctx.lineWidth = Math.max(2, cellPx * 0.35);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    search.path.forEach((i, k) => {
+      const x = (i % gw) * cellPx + cellPx / 2;
+      const y = ((i / gw) | 0) * cellPx + cellPx / 2;
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  const marker = (i, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc((i % gw) * cellPx + cellPx / 2, ((i / gw) | 0) * cellPx + cellPx / 2, Math.max(2, cellPx * 0.34), 0, Math.PI * 2);
+    ctx.fill();
+  };
+  marker(startIdx(), '#39ff8f');
+  marker(goalIdx(), '#ff4655');
+}
+
+// ---------- wall painting ----------
+let painting = null;
+
+function cellAt(evt) {
+  const rect = canvas.getBoundingClientRect();
+  const src = evt.touches ? evt.touches[0] : evt;
+  const x = Math.floor((src.clientX - rect.left) * (canvas.width / rect.width) / cellPx);
+  const y = Math.floor((src.clientY - rect.top) * (canvas.height / rect.height) / cellPx);
+  if (x < 0 || y < 0 || x >= gw || y >= gh) return -1;
+  return idx(x, y);
+}
+
+function paintAt(evt) {
+  const i = cellAt(evt);
+  if (i < 0 || i === startIdx() || i === goalIdx()) return;
+  if (painting === null) painting = cells[i] === OPEN ? WALL : OPEN;
+  cells[i] = painting;
+  draw();
+  evt.preventDefault();
+}
+
+canvas.addEventListener('mousedown', (e) => { stopSearch(); resetStats(); painting = null; paintAt(e); });
+canvas.addEventListener('mousemove', (e) => { if (painting !== null && e.buttons === 1) paintAt(e); });
+window.addEventListener('mouseup', () => { painting = null; });
+canvas.addEventListener('touchstart', (e) => { stopSearch(); resetStats(); painting = null; paintAt(e); }, { passive: false });
+canvas.addEventListener('touchmove', (e) => { if (painting !== null) paintAt(e); }, { passive: false });
+canvas.addEventListener('touchend', () => { painting = null; });
+
+document.getElementById('generate-btn').addEventListener('click', generate);
+document.getElementById('solve-btn').addEventListener('click', solve);
+document.getElementById('clear-btn').addEventListener('click', emptyGrid);
+sizeSlider.addEventListener('change', generate);
+sizeSlider.addEventListener('input', () => {
+  document.getElementById('size-label').textContent = parseInt(sizeSlider.value, 10) * 2 + 1;
+});
+speedSlider.addEventListener('input', () => {
+  document.getElementById('speed-label').textContent = speedSlider.value;
+});
+weightCheck.addEventListener('change', () => { stopSearch(); assignCosts(); resetStats(); draw(); });
+diagCheck.addEventListener('change', () => { stopSearch(); resetStats(); draw(); });
+algoSelect.addEventListener('change', () => { stopSearch(); resetStats(); draw(); });
+
+generate();
+</script>
+</body>
+</html>
